@@ -2,6 +2,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from typing import Type, Any, Callable, Union, List, Optional
 from torchvision._internally_replaced_utils import load_state_dict_from_url
+from collections import OrderedDict
 
 model_urls = {
     'resnet18': 'https://download.pytorch.org/models/resnet18-f37072fd.pth',
@@ -16,9 +17,9 @@ model_urls = {
 }
 
 
-def conv3x3(inplanes, outplanes, stride=1, groups=1, dilation=1, padding_mode='zeros'):
+def conv3x3x3(inplanes, outplanes, stride=1, groups=1, dilation=1, padding_mode='zeros'):
     """3x3 convolution with padding"""
-    return nn.Conv2d(
+    return nn.Conv3d(
         inplanes,
         outplanes,
         kernel_size=3,
@@ -31,9 +32,9 @@ def conv3x3(inplanes, outplanes, stride=1, groups=1, dilation=1, padding_mode='z
     )
 
 
-def conv1x1(inplanes, outplanes, stride=1):
+def conv1x1x1(inplanes, outplanes, stride=1):
     """1x1 convolution"""
-    return nn.Conv2d(inplanes, outplanes, kernel_size=1, stride=stride, bias=False)
+    return nn.Conv3d(inplanes, outplanes, kernel_size=1, stride=stride, bias=False)
 
 
 class BasicBlock(nn.Module):
@@ -52,18 +53,18 @@ class BasicBlock(nn.Module):
     ):
         super(BasicBlock, self).__init__()
         if norm_layer is None:
-            norm_layer = nn.BatchNorm2d
+            norm_layer = nn.BatchNorm3d
         if groups != 1 or base_width != 64:
             raise ValueError("BasicBlock only supports groups=1 and base_width=64")
         if dilation > 1:
             raise NotImplementedError("Dilation > 1 not supported in BasicBlock")
-        self.conv1 = conv3x3(inplanes, planes, stride=1)
+        self.conv1 = conv3x3x3(inplanes, planes, stride=1)
         self.upsample = None
         if stride != 1:
             self.upsample = nn.Upsample(scale_factor=stride, mode="bilinear")
         self.bn1 = norm_layer(planes)
         self.relu = nn.ReLU(inplace=True)
-        self.conv2 = conv3x3(planes, planes)
+        self.conv2 = conv3x3x3(planes, planes)
         self.bn2 = norm_layer(planes)
 
         self.shortcut = shortcut
@@ -112,17 +113,17 @@ class Bottleneck(nn.Module):
     ):
         super(Bottleneck, self).__init__()
         if norm_layer is None:
-            norm_layer = nn.BatchNorm2d
+            norm_layer = nn.BatchNorm3d
         width = int(planes * (base_width / 64.0)) * groups
         # Both self.conv2 and self.upsample layers upsample the input when stride != 1
-        self.conv1 = conv1x1(inplanes, width)
+        self.conv1 = conv1x1x1(inplanes, width)
         self.bn1 = norm_layer(width)
         self.upsample = None
         if stride != 1:
-            self.upsample = nn.Upsample(scale_factor=stride, mode="bilinear")
-        self.conv2 = conv3x3(width, width, 1, groups, dilation)
+            self.upsample = nn.Upsample(scale_factor=stride, mode="trilinear")
+        self.conv2 = conv3x3x3(width, width, 1, groups, dilation)
         self.bn2 = norm_layer(width)
-        self.conv3 = conv1x1(width, planes * self.expansion)
+        self.conv3 = conv1x1x1(width, planes * self.expansion)
         self.bn3 = norm_layer(planes * self.expansion)
         self.relu = nn.ReLU(inplace=True)
         self.shortcut = shortcut
@@ -169,7 +170,7 @@ class ResNetDecoder(nn.Module):
         self.inplanes = inplanes[0]
 
         if norm_layer is None:
-            norm_layer = nn.BatchNorm2d
+            norm_layer = nn.BatchNorm3d
         self._norm_layer = norm_layer
         self.dilation = 1
         layer_planes = [64, 128, 256, 512]
@@ -189,19 +190,12 @@ class ResNetDecoder(nn.Module):
         self.layer1 = self._make_layer(
             block, layer_planes[0], layers[0], stride=layer_strides[0]
         )
-        # self.upsample1 = nn.Upsample(scale_factor=2, mode="bilinear")
-        # self.conv1 = nn.Conv2d(
-        #     self.inplanes, 64, kernel_size=3, stride=1, padding=1, bias=False
-        # )
-        # self.bn1 = norm_layer(64)
-        # self.relu = nn.ReLU(inplace=True)
-        # self.conv2 = nn.Conv2d(64, 3, kernel_size=1, stride=1, bias=True)
-        # self.upsample2 = nn.Upsample(scale_factor=2, mode="bilinear")
+
 
         for m in self.modules():
-            if isinstance(m, nn.Conv2d):
+            if isinstance(m, nn.Conv3d):
                 nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-            elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
+            elif isinstance(m, (nn.BatchNorm3d, nn.GroupNorm)):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
 
@@ -211,8 +205,8 @@ class ResNetDecoder(nn.Module):
         previous_dilation = self.dilation
         if stride != 1 or self.inplanes != planes * block.expansion:
             shortcut = nn.Sequential(
-                conv1x1(self.inplanes, planes * block.expansion, stride=1),
-                nn.Upsample(scale_factor=stride, mode="bilinear"),
+                conv1x1x1(self.inplanes, planes * block.expansion, stride=1),
+                nn.Upsample(scale_factor=stride, mode="trilinear"),
                 norm_layer(planes * block.expansion),
             )
 
@@ -283,10 +277,16 @@ def _resnet(
 ):
     model = ResNetDecoder(block=block, layers=layers, inplanes=inplanes, **kwargs)
     if pretrained:
-        state_dict = load_state_dict_from_url(model_urls[arch],
-                                              progress=progress)
-        state_dict = model.get_consist_weight(state_dict)
-        model.load_state_dict(state_dict)
+        # state_dict = load_state_dict_from_url(model_urls[arch],
+        #                                       progress=progress)
+        # state_dict = model.get_consist_weight(state_dict)
+        checkpoint = torch.load(model_urls[arch])
+        state_dict = checkpoint["state_dict"] 
+        new_state_dict = OrderedDict()
+        for k, v in checkpoint['state_dict'].items():
+            new_key = k.replace('module.', '')  
+            new_state_dict[new_key] = v
+        missing, unexpected = model.load_state_dict(new_state_dict, strict=False)
     return model
 
 

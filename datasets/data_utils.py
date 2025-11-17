@@ -129,15 +129,15 @@ def get_data_loader(dset,
 
         if data_sampler.__name__ == 'RandomSampler':
             data_sampler = data_sampler(dset, replacement, num_samples, generator)
-        else:
-            raise RuntimeError(f"{data_sampler.__name__} is not implemented.")
+        # else:
+        #     raise RuntimeError(f"{data_sampler.__name__} is not implemented.")
 
-        if distributed:
-            '''
-            Different with DistributedSampler, 
-            the DistribuedProxySampler does not shuffle the data (just wrapper for dist).
-            '''
-            data_sampler = DistributedProxySampler(data_sampler)
+        # if distributed:
+        #     '''
+        #     Different with DistributedSampler, 
+        #     the DistribuedProxySampler does not shuffle the data (just wrapper for dist).
+        #     '''
+        #     data_sampler = DistributedProxySampler(data_sampler)
 
         batch_sampler = BatchSampler(data_sampler, batch_size, drop_last)
         return DataLoader(dset, batch_sampler=batch_sampler,

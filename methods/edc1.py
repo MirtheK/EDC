@@ -11,11 +11,12 @@ from torch.cuda.amp import autocast, GradScaler
 from train_utils import Bn_Controller
 from torch.autograd import Function
 import matplotlib.pyplot as plt
-import cv2
+import nibabel as nib
+from sklearn.preprocessing import MinMaxScaler
 
 
 class EDC:
-    def __init__(self, model, it=0, num_eval_iter=1000, amap_reduction='max', tb_log=None, logger=None):
+    def __init__(self, model, num_epochs, it=0, num_eval=10, amap_reduction='max', tb_log=None, logger=None):
         """
         """
 
@@ -24,12 +25,13 @@ class EDC:
         self.loader = {}
         self.model = model
 
-        self.num_eval_iter = num_eval_iter
+        self.num_eval = num_eval
         self.tb_log = tb_log
 
         self.optimizer = None
         self.scheduler = None
 
+        self.epochs = num_epochs
         self.it = 0
         self.logger = logger
         self.print_fn = print if logger is None else logger.info
@@ -58,6 +60,9 @@ class EDC:
 
         start_batch.record()
         best_eval_auc, best_it = 0.0, 0
+        patience_counter = 0
+        save_path = os.path.join(args.save_dir, args.save_name)
+        best_model_name = 'best_model.pth'
 
         scaler = GradScaler()
         amp_cm = autocast if args.amp else contextlib.nullcontext
@@ -68,83 +73,100 @@ class EDC:
             print(eval_dict)
 
         train_log = []
-        for idx, x, _, y, filename in self.loader_dict['train']:
+        total_epochs = self.epochs
 
-            # prevent the training iterations exceed args.num_train_iter
-            if self.it > args.num_train_iter:
-                break
+        for epoch in range(self.epochs):
+            self.model.train()
+            epoch_loss = 0.0
 
-            end_batch.record()
-            torch.cuda.synchronize()
-            start_run.record()
+            for idx, x, _, y, filename in self.loader_dict['train']:
 
-            x = x.cuda(args.gpu)
+                end_batch.record()
+                torch.cuda.synchronize()
+                start_run.record()
 
-            with amp_cm():
-                result = self.model(x)
+                x = x.cuda()
 
-                total_loss = result['loss'].mean()
+                with amp_cm():
+                    result = self.model(x)
+                    total_loss = result['loss'].mean()
 
-            # parameter updates
-            if args.amp:
-                scaler.scale(total_loss).backward()
-                if args.clip > 0:
-                    scaler.unscale_(self.optimizer)
-                    total_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), args.clip)
-                scaler.step(self.optimizer)
-                scaler.update()
-            else:
-                total_loss.backward()
-                if args.clip > 0:
-                    total_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), args.clip)
-                self.optimizer.step()
+                # parameter updates
+                if args.amp:
+                    scaler.scale(total_loss).backward()
+                    if args.clip > 0:
+                        scaler.unscale_(self.optimizer)
+                        total_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), args.clip)
+                    scaler.step(self.optimizer)
+                    scaler.update()
+                else:
+                    total_loss.backward()
+                    if args.clip > 0:
+                        total_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), args.clip)
+                    self.optimizer.step()
 
-            self.scheduler.step()
-            self.model.zero_grad()
+                self.scheduler.step()
+                self.model.zero_grad()
+                epoch_loss += total_loss.item()
 
-            end_run.record()
-            torch.cuda.synchronize()
+                end_run.record()
+                torch.cuda.synchronize()
 
-            # tensorboard_dict update
-            tb_dict = {}
-            tb_dict['train/total_loss'] = total_loss.detach().item()
-            tb_dict['train/e1_std'] = result['e1_std'].detach().item()
-            tb_dict['train/e2_std'] = result['e2_std'].detach().item()
-            tb_dict['train/e3_std'] = result['e3_std'].detach().item()
+                # tensorboard_dict update
+                tb_dict = {
+                    'train/total_loss': total_loss.detach().item(),
+                    'train/e1_std': result['e1_std'].detach().item(),
+                    'train/e2_std': result['e2_std'].detach().item(),
+                    'train/e3_std': result['e3_std'].detach().item(),
+                    'lr': self.optimizer.param_groups[0]['lr'],
+                    'train/prefecth_time': start_batch.elapsed_time(end_batch) / 1000.,
+                    'train/run_time': start_run.elapsed_time(end_run) / 1000.,
+                }
 
-            tb_dict['lr'] = self.optimizer.param_groups[0]['lr']
-            tb_dict['train/prefecth_time'] = start_batch.elapsed_time(end_batch) / 1000.
-            tb_dict['train/run_time'] = start_run.elapsed_time(end_run) / 1000.
 
-            if (self.it + 1) % self.num_eval_iter == 0:
+            # periodic evaluation
+            if (epoch + 1) % self.num_eval == 0:
                 eval_dict = self.evaluate(args=args)
                 tb_dict.update(eval_dict)
-
                 save_path = os.path.join(args.save_dir, args.save_name)
 
                 if tb_dict['eval/AUC'] > best_eval_auc:
                     best_eval_auc = tb_dict['eval/AUC']
-                    best_it = self.it
+                    best_epoch = epoch
+                    patience_counter = 0 
+                    self.save_model(best_model_name, save_path)
+                    save_amap = True
+
+                else:
+                    patience_counter += 1
+                
+                if save_amap:
+                    self.evaluate(args=args, save_visual=True)
+
+                if patience_counter >= 5:
+                    self.print_fn(f"Early stopping at epoch {epoch+1}: AUC hasn't improved for 5 evaluations.")
+                    break  
 
                 self.print_fn(
-                    f"{self.it} iteration, {tb_dict}, BEST_EVAL_AUC: {best_eval_auc}, at {best_it} iters")
+                    f"Epoch [{epoch+1}/{total_epochs}], "
+                    f"{tb_dict}, BEST_EVAL_AUC: {best_eval_auc}, at it {best_epoch}"
+                )
 
                 if self.tb_log is not None:
                     self.tb_log.update(tb_dict, self.it)
-
-                    tb_dict['it'] = self.it
+                    tb_dict['epoch'] = epoch
                     train_log.append(tb_dict)
 
-            self.it += 1
-            del tb_dict
-            start_batch.record()
+                self.it += 1
+                del tb_dict
+                start_batch.record()
 
         f_save = open(os.path.join(save_path, 'train_log.pkl'), 'wb')
         pickle.dump(train_log, f_save)
         f_save.close()
 
         eval_dict = self.evaluate(args=args, save_visual=False)
-        eval_dict.update({'eval/best_auc': best_eval_auc, 'eval/best_it': best_it})
+        eval_dict.update({'eval/best_auc': best_eval_auc, 'eval/best_epoch': best_epoch})
         return eval_dict
 
     @torch.no_grad()
@@ -198,13 +220,13 @@ class EDC:
             total_loss += result['loss'].detach().item() * num_batch
 
             if save_visual:
-                save_path = os.path.join(args.save_dir, args.save_name, 'heatmap')
+                save_path = os.path.join(args.save_dir, args.save_name, 'anomaly_map')
                 if not os.path.exists(save_path):
                     os.mkdir(save_path)
-                anomaly_maps = F.interpolate(result['p_all'], size=xo.shape[1:3], mode='bilinear')
+                anomaly_maps = F.interpolate(result['p_all'], size=xo.shape[2:], mode='trilinear')
                 for i in range(xo.shape[0]):
-                    image = xo[i].numpy().astype('uint8')
-                    anomaly_map = anomaly_maps[i].cpu().permute(1, 2, 0).numpy()
+                    image = np.squeeze(xo[i].cpu().numpy().astype('uint8')) # shape: (D, H, W)
+                    anomaly_map = np.squeeze(anomaly_maps[i].cpu().numpy())
 
                     file_name = file_names[i]
                     self.save_anomaly_map(anomaly_map, image, save_path, file_name)
@@ -221,7 +243,7 @@ class EDC:
         AUC3 = roc_auc_score(y_true, y3_prob)
 
         self.model.train()
-        return {'eval/loss': total_loss / total_num, 'eval/f1': f1, 'eval/recall': recall,
+        return {'eval/loss': total_loss / total_num, 'eval/thr':thresh, 'eval/f1': f1, 'eval/recall': recall,
                 'eval/specificity': specificity, 'eval/acc': acc,
                 'eval/AUC': AUC, 'eval/AUC1': AUC1, 'eval/AUC2': AUC2, 'eval/AUC3': AUC3
                 }
@@ -243,19 +265,18 @@ class EDC:
         self.print_fn('model loaded')
 
     def save_anomaly_map(self, anomaly_map, image, save_path, file_name):
-        # if anomaly_map.shape != image.shape:
-        #     anomaly_map = cv2.resize(anomaly_map, (image.shape[0], image.shape[1]))
+        img = nib.load("/projects/prjs1633/anomaly_detection/SHOMRI/zero_mask.nii.gz")
+        affine = img.affine
+
         anomaly_map_norm = min_max_norm(anomaly_map)
-        # anomaly map on image
-        heatmap = cvt2heatmap(anomaly_map_norm * 255)
-        hm_on_img = heatmap_on_image(heatmap, image)
+        norm_anomaly_map = (anomaly_map_norm * 255)
+        nib.save(nib.Nifti1Image(norm_anomaly_map, affine), os.path.join(save_path, file_name))
+    
 
-        # save images
-        cv2.imwrite(os.path.join(save_path, file_name), hm_on_img)
-
-
-def cvt2heatmap(gray):
-    heatmap = cv2.applyColorMap(np.uint8(gray), cv2.COLORMAP_JET)
+def gray2heatmap(gray):
+    heatmap = []
+    for i in range(gray[0]):
+        heatmap = cv2.applyColorMap(np.uint8(i), cv2.COLORMAP_JET)
     return heatmap
 
 

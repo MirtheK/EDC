@@ -1,4 +1,3 @@
-# import needed library
 import os
 import logging
 import random
@@ -41,10 +40,10 @@ def main_worker(gpu, args):
     logger.warning(f"USE GPU: {args.gpu} for training")
 
     # Construct Dataset & DataLoader
-    train_dset = AD_Dataset(name=args.dataset, train=True, data_dir=args.data_dir)
+    train_dset = AD_Dataset(name=args.dataset, img_size=args.img_size, train=True, data_dir=args.data_dir)
     train_dset = train_dset.get_dset()
     print('TrainSet Image Number:', len(train_dset))
-    eval_dset = AD_Dataset(name=args.dataset, train=False, data_dir=args.data_dir)
+    eval_dset = AD_Dataset(name=args.dataset, img_size=args.img_size, train=False, data_dir=args.data_dir)
     eval_dset = eval_dset.get_dset()
     print('EvalSet Image Number:', len(eval_dset))
 
@@ -58,8 +57,7 @@ def main_worker(gpu, args):
                                            data_sampler=args.train_sampler,
                                            num_iters=args.num_train_iter,
                                            num_workers=args.num_workers,
-                                           distributed=False,
-                                           generator=generator_lb)
+                                           distributed=False)
 
     loader_dict['eval'] = get_data_loader(dset_dict['eval'],
                                           args.eval_batch_size,
@@ -74,11 +72,12 @@ def main_worker(gpu, args):
                     )
 
     for m in model.modules():
-        if isinstance(m, nn.BatchNorm2d):
+        if isinstance(m, nn.BatchNorm3d):
             m.momentum = 0.01
 
     runner = EDC(model=model,
-                 num_eval_iter=args.num_eval_iter,
+                 num_epochs = args.epoch,
+                 num_eval=args.num_eval,
                  tb_log=tb_log,
                  logger=logger)
 
@@ -96,9 +95,6 @@ def main_worker(gpu, args):
     elif args.gpu is not None:
         torch.cuda.set_device(args.gpu)
         runner.model = runner.model.cuda(args.gpu)
-
-    logger.info(f"model_arch: {model}")
-    logger.info(f"Arguments: {args}")
 
     ## set DataLoader
     runner.set_data_loader(loader_dict)
@@ -131,27 +127,26 @@ if __name__ == "__main__":
     '''
     Saving & loading of the model.
     '''
-    parser.add_argument('--save_dir', type=str, default='./saved_models')
+    parser.add_argument('--save_dir', type=str, default='/projects/prjs1633/anomaly_detection/saved_models')
     parser.add_argument('-sn', '--save_name', type=str,
-                        default='edcad_br35h_256_r50_r50_m4_bn99_adamw5e4wd1e4_5e5_b32_i4k_cl1_0',
+                        default='edcad_br35h',
                         )
     parser.add_argument('--resume', action='store_true', default=False)
     parser.add_argument('--load_path', type=str, default=None)
     parser.add_argument('-o', '--overwrite', action='store_true', default=True)
-    parser.add_argument('--use_tensorboard', action='store_true', default=True,
+    parser.add_argument('--use_tensorboard', action='store_true', default=False,
                         help='Use tensorboard to plot and save curves, otherwise save the curves locally.')
 
     '''  
     Training Configuration
     '''
-
-    parser.add_argument('--epoch', type=int, default=1)
+    parser.add_argument('--epoch', type=int, default=100)
     parser.add_argument('--num_train_iter', type=int, default=4000,
                         help='total number of training iterations')
-    parser.add_argument('--num_eval_iter', type=int, default=100,
+    parser.add_argument('--num_eval', type=int, default=5,
                         help='evaluation frequency')
-    parser.add_argument('-bsz', '--batch_size', type=int, default=32)
-    parser.add_argument('--eval_batch_size', type=int, default=64,
+    parser.add_argument('-bsz', '--batch_size', type=int, default=8)
+    parser.add_argument('--eval_batch_size', type=int, default=8,
                         help='batch size of evaluation data loader (it does not affect the accuracy)')
     parser.add_argument('--ema_m', type=float, default=0., help='ema momentum for eval_model')
 
@@ -159,19 +154,19 @@ if __name__ == "__main__":
     Optimizer configurations
     '''
     parser.add_argument('--optim', type=str, default='AdamW')
-    parser.add_argument('--lr', type=float, default=5e-4)
-    parser.add_argument('--lr_encoder', type=float, default=5e-5)
+    parser.add_argument('--lr', type=float, default=1e-4)
+    parser.add_argument('--lr_encoder', type=float, default=1e-5)
     parser.add_argument('--momentum', type=float, default=0.9)
-    parser.add_argument('--weight_decay', type=float, default=1e-4)
+    parser.add_argument('--weight_decay', type=float, default=1e-2)
     parser.add_argument('--amp', type=str2bool, default=False, help='use mixed precision training or not')
     parser.add_argument('--clip', type=float, default=1.)
     ''' 
     Data Configurations
     '''
-    parser.add_argument('--data_dir', type=str, default="/data/disk2T1/guoj/Br35H")
+    parser.add_argument('--data_dir', type=str, default="/projects/prjs1633/anomaly_detection/SHOMRI")
     parser.add_argument('-ds', '--dataset', type=str, default='mri')
-    parser.add_argument('--train_sampler', type=str, default='RandomSampler')
-    parser.add_argument('--img_size', type=int, default=256)
+    parser.add_argument('--train_sampler', type=str, default=None)
+    parser.add_argument('--img_size', type=int, default=128)
     parser.add_argument('--num_workers', type=int, default=4)
 
     '''
@@ -181,7 +176,7 @@ if __name__ == "__main__":
     ## args for distributed training (from https://github.com/pytorch/examples/blob/master/imagenet/main.py)
     parser.add_argument('--seed', default=0, type=int,
                         help='seed for initializing training.')
-    parser.add_argument('--gpu', default='2', type=str,
+    parser.add_argument('--gpu', default='0', type=str,
                         help='GPU id to use.')
 
     # config file
