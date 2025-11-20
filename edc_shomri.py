@@ -154,10 +154,10 @@ if __name__ == "__main__":
     Optimizer configurations
     '''
     parser.add_argument('--optim', type=str, default='AdamW')
-    parser.add_argument('--lr', type=float, default=1e-4)
+    parser.add_argument('--lr', type=float, default=5e-4)
     parser.add_argument('--lr_encoder', type=float, default=1e-5)
     parser.add_argument('--momentum', type=float, default=0.9)
-    parser.add_argument('--weight_decay', type=float, default=1e-2)
+    parser.add_argument('--weight_decay', type=float, default=1e-3)
     parser.add_argument('--amp', type=str2bool, default=False, help='use mixed precision training or not')
     parser.add_argument('--clip', type=float, default=1.)
     ''' 
