@@ -61,7 +61,7 @@ class BasicBlock(nn.Module):
         self.conv1 = conv3x3x3(inplanes, planes, stride=1)
         self.upsample = None
         if stride != 1:
-            self.upsample = nn.Upsample(scale_factor=stride, mode="bilinear")
+            self.upsample = nn.Upsample(scale_factor=stride, mode="trilinear")
         self.bn1 = norm_layer(planes)
         self.relu = nn.ReLU(inplace=True)
         self.conv2 = conv3x3x3(planes, planes)
@@ -277,9 +277,7 @@ def _resnet(
 ):
     model = ResNetDecoder(block=block, layers=layers, inplanes=inplanes, **kwargs)
     if pretrained:
-        # state_dict = load_state_dict_from_url(model_urls[arch],
-        #                                       progress=progress)
-        # state_dict = model.get_consist_weight(state_dict)
+
         checkpoint = torch.load(model_urls[arch])
         state_dict = checkpoint["state_dict"] 
         new_state_dict = OrderedDict()
@@ -289,6 +287,13 @@ def _resnet(
         missing, unexpected = model.load_state_dict(new_state_dict, strict=False)
     return model
 
+def resnet10_decoder(pretrained: bool = False, progress: bool = True, **kwargs: Any):
+    return _resnet('resnet10', BasicBlock, [2, 2, 2, 2], pretrained, progress,
+                   **kwargs)
+
+def resnet18_decoder(pretrained: bool = False, progress: bool = True, **kwargs: Any):
+    return _resnet('resnet18', BasicBlock, [2, 2, 2, 2], pretrained, progress,
+                   **kwargs)
 
 def resnet34_decoder(pretrained: bool = False, progress: bool = True, **kwargs: Any):
     return _resnet('resnet34', BasicBlock, [3, 4, 6, 3], pretrained, progress,

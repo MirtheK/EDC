@@ -12,9 +12,10 @@ __all__ = ['ResNet', 'resnet18', 'resnet34', 'resnet50', 'resnet101',
            'wide_resnet50_2', 'wide_resnet101_2']
 
 model_urls = {
-    # 'resnet18': 'https://download.pytorch.org/models/resnet18-f37072fd.pth',
+    'resnet10': "/projects/prjs1633/repositories/MDPS/src/models/resnet_10_23dataset.pth",
+    'resnet18': "/projects/prjs1633/repositories/MDPS/src/models/resnet_18_23dataset.pth", #'https://download.pytorch.org/models/resnet18-f37072fd.pth',
     # 'resnet34': 'https://download.pytorch.org/models/resnet34-b627a593.pth',
-    "resnet50":  "/projects/prjs1633/repositories/MDPS/src/models/resnet_50_23dataset.pth", # "https://download.pytorch.org/models/resnet50-0676ba61.pth",
+    # "resnet50":  "/projects/prjs1633/repositories/MDPS/src/models/resnet_50_23dataset.pth", # "https://download.pytorch.org/models/resnet50-0676ba61.pth",
     # 'resnet101': 'https://download.pytorch.org/models/resnet101-63fe2227.pth',
     # 'resnet152': 'https://download.pytorch.org/models/resnet152-394f9c45.pth',
     # 'resnext50_32x4d': 'https://download.pytorch.org/models/resnext50_32x4d-7cdf4587.pth',
@@ -280,6 +281,16 @@ def _resnet(
         # model.load_state_dict(state_dict)
     return model
 
+def resnet10(pretrained: bool = False, progress: bool = True, **kwargs: Any) -> ResNet:
+    r"""ResNet-18 model from
+    `"Deep Residual Learning for Image Recognition" <https://arxiv.org/pdf/1512.03385.pdf>`_.
+
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+        progress (bool): If True, displays a progress bar of the download to stderr
+    """
+    return _resnet('resnet10', BasicBlock, [2, 2, 2, 2], pretrained, progress,
+                   **kwargs)
 
 def resnet18(pretrained: bool = False, progress: bool = True, **kwargs: Any) -> ResNet:
     r"""ResNet-18 model from
