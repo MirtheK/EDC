@@ -63,11 +63,12 @@ class BasicDataset(Dataset):
             self.train_transform = Compose([
                 RandFlip(prob=0.5, spatial_axis=0),
                 RandFlip(prob=0.5, spatial_axis=1),
+                RandFlip(prob=0.5, spatial_axis=2),
                 RandRotate(range_x=0.17, range_y=0.17, range_z=0.17, prob=0.3, padding_mode="zeros"), 
                 RandZoom(min_zoom=0.9, max_zoom=1.1, prob=0.3), 
                 
                 RandBiasField(prob=0.2), 
-                RandGaussianSmooth(sigma_x=(0.25, 1.5), prob=0.1),
+                RandGaussianSmooth(sigma_x=(0.25, 1.5), prob=0.5),
             ])
         else:
             self.train_transform = None
