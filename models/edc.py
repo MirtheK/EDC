@@ -1,5 +1,5 @@
-from models.resnet import resnet34, resnet50, wide_resnet50_2, resnext50_32x4d
-from models.resnet_decoder import resnet50_decoder, wide_resnet50_decoder, resnet34_decoder, resnext50_32x4d_decoder
+from models.resnet import resnet10, resnet18, resnet34, resnet50, wide_resnet50_2, resnext50_32x4d
+from models.resnet_decoder import resnet10_decoder, resnet18_decoder, resnet50_decoder, wide_resnet50_decoder, resnet34_decoder, resnext50_32x4d_decoder
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -89,8 +89,8 @@ class R50_R50(nn.Module):
                  anomap_layer=[1, 2, 3]
                  ):
         super().__init__()
-        self.edc_encoder = resnet50(pretrained=True)
-        self.edc_decoder = resnet50_decoder(pretrained=False, inplanes=[2048])
+        self.edc_encoder = resnet10(pretrained=True)
+        self.edc_decoder = resnet10_decoder(pretrained=False, inplanes=[512])
         self.train_encoder = train_encoder
         self.stop_grad = stop_grad
         self.reshape = reshape
