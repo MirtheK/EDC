@@ -61,6 +61,8 @@ class BasicDataset(Dataset):
 
         if self.train:
             self.train_transform = Compose([
+                ScaleIntensityRange(a_min=0, a_max=2000, b_min=0.0, b_max=1.0, clip=True),
+                NormalizeIntensity(subtrahend='image', divisor='image', nonzero=True),
                 RandFlip(prob=0.5, spatial_axis=0),
                 RandFlip(prob=0.5, spatial_axis=1),
                 RandFlip(prob=0.5, spatial_axis=2),
@@ -71,7 +73,10 @@ class BasicDataset(Dataset):
                 RandGaussianSmooth(sigma_x=(0.25, 1.5), prob=0.5),
             ])
         else:
-            self.train_transform = None
+            self.train_transform = Compose([
+                ScaleIntensityRange(a_min=0, a_max=2000, b_min=0.0, b_max=1.0, clip=True),
+                NormalizeIntensity(subtrahend='image', divisor='image', nonzero=True),
+            ])
 
 
 
@@ -84,16 +89,16 @@ class BasicDataset(Dataset):
 
         img = self.img_loader(img_path) 
         img = self.resizer(img)
-        img = np.array(img, dtype=np.float32)
+        # img = np.array(img, dtype=np.float32)
 
 
         target = self.targets[idx] if self.targets is not None else None
 
-        if self.train and self.train_transform:
-            img_t = self.train_transform(torch.from_numpy(img)).numpy()
-        else:
-            img_t = img.copy()
-        img_n = torch.from_numpy((img_t - img_t.mean()) / (img_t.std() + 1e-8)).float()
+        # if self.train and self.train_transform:
+        img_t = self.train_transform(img)
+        img_n = img_t.copy()
+        # els
+        # img_n = torch.from_numpy((img_t - img_t.mean()) / (img_t.std() + 1e-8)).float()
 
         return idx, img_n, img_t, target, filename
 
@@ -170,6 +175,6 @@ class AD_Dataset:
 
         img_paths, targets = self.get_data()
 
-        dset = BasicDataset(img_paths, targets)
+        dset = BasicDataset(img_paths, targets, train=self.train)
 
         return dset
