@@ -174,6 +174,7 @@ class EDC:
         self.model.eval()
         if eval_loader is None:
             eval_loader = self.loader_dict['eval']
+
         total_num = 0.0
         total_loss = 0.0
         y_true = []
@@ -221,16 +222,26 @@ class EDC:
 
             if save_visual:
                 save_path = os.path.join(args.save_dir, args.save_name, 'anomaly_map')
+                image_save_path = os.path.join(args.save_dir, args.save_name, 'image')
+
                 if not os.path.exists(save_path):
                     os.mkdir(save_path)
+                if not os.path.exists(image_save_path):
+                    os.mkdir(image_save_path)
+
                 anomaly_maps = F.interpolate(result['p_all'], size=xo.shape[2:], mode='trilinear')
+                global_min = torch.min(anomaly_maps).cpu().numpy()
+                global_max = torch.max(anomaly_maps).cpu().numpy()
+                print("min, max", global_min, global_max)
+
                 for i in range(xo.shape[0]):
-                    image = np.squeeze(xo[i].cpu().numpy().astype('uint8')) # shape: (D, H, W)
+                    image = np.squeeze(xo[i].cpu().numpy()) # shape: (D, H, W)
                     anomaly_map = np.squeeze(anomaly_maps[i].cpu().numpy())
+                    amap_norm = (anomaly_map - global_min) / (global_max - global_min + 1e-8)
 
                     file_name = file_names[i]
-                    self.save_anomaly_map(anomaly_map, image, save_path, file_name)
-
+                    self.save_anomaly_map(amap_norm, image, save_path, image_save_path, file_name)
+                    
         thresh = return_best_thr(y_true, y_prob)
         acc = accuracy_score(y_true, y_prob >= thresh)
         f1 = f1_score(y_true, y_prob >= thresh)
@@ -264,13 +275,15 @@ class EDC:
         self.it = checkpoint['it']
         self.print_fn('model loaded')
 
-    def save_anomaly_map(self, anomaly_map, image, save_path, file_name):
+    def save_anomaly_map(self, anomaly_map, image, save_path, image_save_path, file_name):
         img = nib.load("/projects/prjs1633/anomaly_detection/SHOMRI/zero_mask.nii.gz")
         affine = img.affine
 
-        anomaly_map_norm = min_max_norm(anomaly_map)
-        norm_anomaly_map = (anomaly_map_norm * 255)
-        nib.save(nib.Nifti1Image(norm_anomaly_map, affine), os.path.join(save_path, file_name))
+        # anomaly_map_norm = min_max_norm(anomaly_map)
+        # norm_anomaly_map = (anomaly_map_norm * 255)
+        # norm_anomaly_map = np.flip(norm_anomaly_map, axis=2).copy()
+        nib.save(nib.Nifti1Image(anomaly_map, affine), os.path.join(save_path, file_name))
+        nib.save(nib.Nifti1Image(image, affine), os.path.join(image_save_path, file_name))
     
 
 def gray2heatmap(gray):
