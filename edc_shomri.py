@@ -163,7 +163,7 @@ if __name__ == "__main__":
     ''' 
     Data Configurations
     '''
-    parser.add_argument('--data_dir', type=str, default="/projects/prjs1633/anomaly_detection/SHOMRI")
+    parser.add_argument('--data_dir', type=str, default="/projects/prjs1633/anomaly_detection/SHOMRI/new_crop/")
     parser.add_argument('-ds', '--dataset', type=str, default='mri')
     parser.add_argument('--train_sampler', type=str, default=None)
     parser.add_argument('--img_size', type=int, default=128)
