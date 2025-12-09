@@ -45,8 +45,8 @@ class R50_R50(nn.Module):
                  anomap_layer=[1, 2, 3]
                  ):
         super().__init__()
-        self.edc_encoder = resnet18(pretrained=True)
-        self.edc_decoder = resnet18_decoder(pretrained=False, inplanes=[512])
+        self.edc_encoder = resnet50(pretrained=True)
+        self.edc_decoder = resnet50_decoder(pretrained=False, inplanes=[512])
         self.train_encoder = train_encoder
         self.stop_grad = stop_grad
         self.reshape = reshape
