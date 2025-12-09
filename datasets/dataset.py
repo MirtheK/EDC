@@ -32,7 +32,8 @@ from monai.transforms import (
     RandGaussianSmooth,
     NormalizeIntensity,
     RandZoom,
-    RandBiasField
+    RandBiasField,
+    ScaleIntensityRange
 )
 import glob, os
 
@@ -47,7 +48,7 @@ class BasicDataset(Dataset):
     Supports nii.gz images.
     """
 
-    def __init__(self, img_paths, targets=None, transform=None, train=True, imagenet_norm=True, output_size=(128, 128, 128)):
+    def __init__(self, img_paths, targets=None, transform=None, train=True, imagenet_norm=True, output_size=(128, 64, 128)):
         super().__init__()
         self.img_paths = img_paths
         self.targets = targets
@@ -61,8 +62,7 @@ class BasicDataset(Dataset):
 
         if self.train:
             self.train_transform = Compose([
-                ScaleIntensityRange(a_min=0, a_max=2000, b_min=0.0, b_max=1.0, clip=True),
-                NormalizeIntensity(subtrahend='image', divisor='image', nonzero=True),
+                ScaleIntensityRange(a_min=0, a_max=600, b_min=0.0, b_max=1.0, clip=True),
                 RandFlip(prob=0.5, spatial_axis=0),
                 RandFlip(prob=0.5, spatial_axis=1),
                 RandFlip(prob=0.5, spatial_axis=2),
@@ -74,8 +74,7 @@ class BasicDataset(Dataset):
             ])
         else:
             self.train_transform = Compose([
-                ScaleIntensityRange(a_min=0, a_max=2000, b_min=0.0, b_max=1.0, clip=True),
-                NormalizeIntensity(subtrahend='image', divisor='image', nonzero=True),
+                ScaleIntensityRange(a_min=0, a_max=600, b_min=0.0, b_max=1.0, clip=True),
             ])
 
 
@@ -89,17 +88,11 @@ class BasicDataset(Dataset):
 
         img = self.img_loader(img_path) 
         img = self.resizer(img)
-        # img = np.array(img, dtype=np.float32)
-
 
         target = self.targets[idx] if self.targets is not None else None
 
-        # if self.train and self.train_transform:
         img_t = self.train_transform(img)
-        img_n = img_t.copy()
-        # els
-        # img_n = torch.from_numpy((img_t - img_t.mean()) / (img_t.std() + 1e-8)).float()
-
+        img_n = img_t.clone()
         return idx, img_n, img_t, target, filename
 
 
