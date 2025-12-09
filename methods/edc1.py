@@ -137,15 +137,15 @@ class EDC:
                     self.save_model(best_model_name, save_path)
                     save_amap = True
 
-                else:
-                    patience_counter += 1
+                # else:
+                #     patience_counter += 1
                 
                 if save_amap:
                     self.evaluate(args=args, save_visual=True)
 
-                if patience_counter >= 5:
-                    self.print_fn(f"Early stopping at epoch {epoch+1}: AUC hasn't improved for 5 evaluations.")
-                    break  
+                # if patience_counter >= 5:
+                #     self.print_fn(f"Early stopping at epoch {epoch+1}: AUC hasn't improved for 5 evaluations.")
+                #     break  
 
                 self.print_fn(
                     f"Epoch [{epoch+1}/{total_epochs}], "
@@ -193,7 +193,7 @@ class EDC:
                 p1_img = result['p1'].flatten(1).mean(1)
                 p2_img = result['p2'].flatten(1).mean(1)
                 p3_img = result['p3'].flatten(1).mean(1)
-            elif isinstance(self.amap_reduction, float):  # the mean of max 'self.amap_reduction' percent
+            elif isinstance(self.amap_reduction, float):  
                 anomaly_map = result['p_all'].flatten(1)
                 p_img = torch.sort(anomaly_map, dim=1, descending=True)[0][:,
                         :int(anomaly_map.shape[1] * self.amap_reduction)].mean(dim=1)
@@ -242,7 +242,7 @@ class EDC:
                     file_name = file_names[i]
                     self.save_anomaly_map(amap_norm, image, save_path, image_save_path, file_name)
                     
-        thresh = return_best_thr(y_true, y_prob)
+        thresh = return_best_thr(y_true, y_prob) # <-- how to put the correct threshold calc here (the one based on the percentile??)
         acc = accuracy_score(y_true, y_prob >= thresh)
         f1 = f1_score(y_true, y_prob >= thresh)
         recall = recall_score(y_true, y_prob >= thresh)
@@ -304,15 +304,32 @@ def min_max_norm(image):
     return (image - a_min) / (a_max - a_min)
 
 
-def return_best_thr(y_true, y_score):
-    precs, recs, thrs = precision_recall_curve(y_true, y_score)
+# def return_best_thr(y_true, y_score):
+#     precs, recs, thrs = precision_recall_curve(y_true, y_score)
 
-    f1s = 2 * precs * recs / (precs + recs + 1e-7)
-    f1s = f1s[:-1]
-    thrs = thrs[~np.isnan(f1s)]
-    f1s = f1s[~np.isnan(f1s)]
-    best_thr = thrs[np.argmax(f1s)]
-    return best_thr
+#     f1s = 2 * precs * recs / (precs + recs + 1e-7)
+#     f1s = f1s[:-1]
+#     thrs = thrs[~np.isnan(f1s)]
+#     f1s = f1s[~np.isnan(f1s)]
+#     best_thr = thrs[np.argmax(f1s)]
+#     return best_thr
+
+def calculate_threshold_from_errors(normal_train_errors, percentile=99):
+
+    errors_array = np.array(normal_train_errors)
+    
+    # Check if there are errors to process
+    if errors_array.size == 0:
+        raise ValueError("The input list of errors is empty.")
+    
+    # Determine the threshold at the specified percentile
+    # This finds the error value below which 'percentile' percent of the errors fall.
+    threshold = np.percentile(errors_array, percentile)
+    
+    print(f"Calculated Threshold ({percentile}th percentile): {threshold:.4f}")
+    
+    return threshold
+
 
 
 def specificity_score(y_true, y_score):
