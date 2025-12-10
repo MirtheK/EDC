@@ -53,67 +53,111 @@ class R50_R50(nn.Module):
         self.bn_pretrain = bn_pretrain
         self.anomap_layer = anomap_layer
 
-    def forward(self, x, ):
-        if not self.train_encoder and self.edc_encoder.training:
-            self.edc_encoder.eval()
-        if self.bn_pretrain and self.edc_encoder.training:
-            self.edc_encoder.eval()
-
+    def forward(self, x):
         B = x.shape[0]
 
-        e1, e2, e3, e4 = self.edc_encoder(x)
-        if not self.train_encoder:
-            e4 = e4.detach()
-        d1, d2, d3 = self.edc_decoder(e4)
+        # encoder forward
+        e1, e2, e3, e4 = self.encoder(x)
 
-        if (not self.train_encoder) or self.stop_grad:
+        if not self.train_encoder:
+            e1 = e1.detach()
+            e2 = e2.detach()
+            e3 = e3.detach()
+            e4 = e4.detach()
+
+        # decoder forward
+        d1, d2, d3 = self.decoder(e4)
+
+        if self.stop_grad:
             e1 = e1.detach()
             e2 = e2.detach()
             e3 = e3.detach()
 
-        # if self.reshape:
-        #     l1 = 1. - torch.cosine_similarity(d1.reshape(B, -1), e1.reshape(B, -1), dim=1).mean()
-        #     l2 = 1. - torch.cosine_similarity(d2.reshape(B, -1), e2.reshape(B, -1), dim=1).mean()
-        #     l3 = 1. - torch.cosine_similarity(d3.reshape(B, -1), e3.reshape(B, -1), dim=1).mean()
-        # else:
-        #     l1 = 1. - torch.cosine_similarity(d1, e1, dim=1).mean()
-        #     l2 = 1. - torch.cosine_similarity(d2, e2, dim=1).mean()
-        #     l3 = 1. - torch.cosine_similarity(d3, e3, dim=1).mean()
+        mse1 = (d1 - e1).pow(2).mean(dim=[1, 2, 3, 4], keepdim=True)
+        mse2 = (d2 - e2).pow(2).mean(dim=[1, 2, 3, 4], keepdim=True)
+        mse3 = (d3 - e3).pow(2).mean(dim=[1, 2, 3, 4], keepdim=True)
 
-        # with torch.no_grad():
-        #     p1 = 1. - torch.cosine_similarity(d1, e1, dim=1).unsqueeze(1)
-        #     p2 = 1. - torch.cosine_similarity(d2, e2, dim=1).unsqueeze(1)
-        #     p3 = 1. - torch.cosine_similarity(d3, e3, dim=1).unsqueeze(1)
+        loss = mse1.mean() + mse2.mean() + mse3.mean()
 
-        # MSE loss instead
-        criterion = nn.MSELoss(reduction='none')
+        p1_map = (d1 - e1).pow(2).mean(dim=1, keepdim=True)
+        p2_map = (d2 - e2).pow(2).mean(dim=1, keepdim=True)
+        p3_map = (d3 - e3).pow(2).mean(dim=1, keepdim=True)
 
-        if self.reshape:
-            l1 = criterion(d1.reshape(B, -1), e1.reshape(B, -1)).mean()
-            l2 = criterion(d2.reshape(B, -1), e2.reshape(B, -1)).mean()
-            l3 = criterion(d3.reshape(B, -1), e3.reshape(B, -1)).mean()
-        else:
-            l1 = criterion(d1, e1).mean()
-            l2 = criterion(d2, e2).mean()
-            l3 = criterion(d3, e3).mean()
+        p2_map = F.interpolate(p2_map, size=p1_map.shape[2:], mode='trilinear', align_corners=False)
+        p3_map = F.interpolate(p3_map, size=p1_map.shape[2:], mode='trilinear', align_corners=False)
 
-        with torch.no_grad():
-            p1 = criterion(d1, e1) 
-            p2 = criterion(d2, e2)
-            p3 = criterion(d3, e3)
-        loss = l1 + l2 + l3
+        amap = torch.cat([p1_map, p2_map, p3_map], dim=1).mean(dim=1, keepdim=True)
 
-        p2 = F.interpolate(p2, scale_factor=2, mode='trilinear', align_corners=False)
-        p3 = F.interpolate(p3, scale_factor=4, mode='trilinear', align_corners=False)
+        return {
+            "loss": loss,
+            "score": (mse1 + mse2 + mse3).mean(dim=1), 
+            "score1": mse1.squeeze(1),
+            "score2": mse2.squeeze(1),
+            "score3": mse3.squeeze(1),
+            "amap": amap           
+        }
 
-        p_all = [[p1, p2, p3][l - 1] for l in self.anomap_layer]
-        p_all = torch.cat(p_all, dim=1).mean(dim=1, keepdim=True)
+    # def forward(self, x, ):
+    #     if not self.train_encoder and self.edc_encoder.training:
+    #         self.edc_encoder.eval()
+    #     if self.bn_pretrain and self.edc_encoder.training:
+    #         self.edc_encoder.eval()
 
-        with torch.no_grad():
-            e1_std = F.normalize(e1.permute(1, 0, 2, 3, 4).flatten(1), dim=0).std(dim=1).mean()
-            e2_std = F.normalize(e2.permute(1, 0, 2, 3, 4).flatten(1), dim=0).std(dim=1).mean()
-            e3_std = F.normalize(e3.permute(1, 0, 2, 3, 4).flatten(1), dim=0).std(dim=1).mean()
+    #     B = x.shape[0]
 
-        return {'loss': loss, 'p_all': p_all, 'p1': p1, 'p2': p2, 'p3': p3,
-                'e1_std': e1_std, 'e2_std': e2_std, 'e3_std': e3_std}
+    #     e1, e2, e3, e4 = self.edc_encoder(x)
+    #     if not self.train_encoder:
+    #         e4 = e4.detach()
+    #     d1, d2, d3 = self.edc_decoder(e4)
+
+    #     if (not self.train_encoder) or self.stop_grad:
+    #         e1 = e1.detach()
+    #         e2 = e2.detach()
+    #         e3 = e3.detach()
+
+    #     # if self.reshape:
+    #     #     l1 = 1. - torch.cosine_similarity(d1.reshape(B, -1), e1.reshape(B, -1), dim=1).mean()
+    #     #     l2 = 1. - torch.cosine_similarity(d2.reshape(B, -1), e2.reshape(B, -1), dim=1).mean()
+    #     #     l3 = 1. - torch.cosine_similarity(d3.reshape(B, -1), e3.reshape(B, -1), dim=1).mean()
+    #     # else:
+    #     #     l1 = 1. - torch.cosine_similarity(d1, e1, dim=1).mean()
+    #     #     l2 = 1. - torch.cosine_similarity(d2, e2, dim=1).mean()
+    #     #     l3 = 1. - torch.cosine_similarity(d3, e3, dim=1).mean()
+
+    #     # with torch.no_grad():
+    #     #     p1 = 1. - torch.cosine_similarity(d1, e1, dim=1).unsqueeze(1)
+    #     #     p2 = 1. - torch.cosine_similarity(d2, e2, dim=1).unsqueeze(1)
+    #     #     p3 = 1. - torch.cosine_similarity(d3, e3, dim=1).unsqueeze(1)
+
+    #     # MSE loss instead
+    #     criterion = nn.MSELoss(reduction='none')
+
+    #     if self.reshape:
+    #         l1 = criterion(d1.reshape(B, -1), e1.reshape(B, -1)).mean()
+    #         l2 = criterion(d2.reshape(B, -1), e2.reshape(B, -1)).mean()
+    #         l3 = criterion(d3.reshape(B, -1), e3.reshape(B, -1)).mean()
+    #     else:
+    #         l1 = criterion(d1, e1).mean()
+    #         l2 = criterion(d2, e2).mean()
+    #         l3 = criterion(d3, e3).mean()
+
+    #     with torch.no_grad():
+    #         p1 = criterion(d1, e1) 
+    #         p2 = criterion(d2, e2)
+    #         p3 = criterion(d3, e3)
+    #     loss = l1 + l2 + l3
+
+    #     p2 = F.interpolate(p2, scale_factor=2, mode='trilinear', align_corners=False)
+    #     p3 = F.interpolate(p3, scale_factor=4, mode='trilinear', align_corners=False)
+
+    #     p_all = [[p1, p2, p3][l - 1] for l in self.anomap_layer]
+    #     p_all = torch.cat(p_all, dim=1).mean(dim=1, keepdim=True)
+
+    #     with torch.no_grad():
+    #         e1_std = F.normalize(e1.permute(1, 0, 2, 3, 4).flatten(1), dim=0).std(dim=1).mean()
+    #         e2_std = F.normalize(e2.permute(1, 0, 2, 3, 4).flatten(1), dim=0).std(dim=1).mean()
+    #         e3_std = F.normalize(e3.permute(1, 0, 2, 3, 4).flatten(1), dim=0).std(dim=1).mean()
+
+    #     return {'loss': loss, 'p_all': p_all, 'p1': p1, 'p2': p2, 'p3': p3,
+    #             'e1_std': e1_std, 'e2_std': e2_std, 'e3_std': e3_std}
 
