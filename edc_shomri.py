@@ -15,8 +15,13 @@ from datasets.dataset import AD_Dataset
 from datasets.data_utils import get_data_loader
 from models.edc import R50_R50
 import warnings
+import torch
+import numpy as np
+from sklearn.decomposition import PCA 
+import torch.linalg
 
 warnings.filterwarnings('ignore')
+
 
 
 def main_worker(gpu, args):
@@ -30,6 +35,11 @@ def main_worker(gpu, args):
     np.random.seed(args.seed)
     cudnn.deterministic = True
     # cudnn.benchmark = True
+    if torch.cuda.is_available():
+        DEVICE = torch.device(f'cuda:{args.gpu}')
+    else:
+        DEVICE = torch.device('cpu')
+    args.device = DEVICE
 
     # SET save_path and logger
     save_path = os.path.join(args.save_dir, args.save_name)
@@ -68,9 +78,9 @@ def main_worker(gpu, args):
                     train_encoder=True,
                     stop_grad=True,
                     reshape=True,
-                    bn_pretrain=False,
+                    bn_pretrain=False
                     )
-
+    model.to(args.device)
     for m in model.modules():
         if isinstance(m, nn.BatchNorm3d):
             m.momentum = 0.01

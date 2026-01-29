@@ -16,7 +16,7 @@ from sklearn.preprocessing import MinMaxScaler
 
 
 class EDC:
-    def __init__(self, model, num_epochs, it=0, num_eval=10, amap_reduction='max', tb_log=None, logger=None):
+    def __init__(self, model, num_epochs, it=0, num_eval=10, amap_reduction='mean', tb_log=None, logger=None):
         """
         """
 
@@ -177,6 +177,9 @@ class EDC:
 
         total_num = 0.0
         total_loss = 0.0
+        all_maps = []
+        all_images = []
+        all_filenames = []
         y_true = []
         y_prob = []
         y1_prob = []
@@ -221,28 +224,12 @@ class EDC:
             total_loss += result['loss'].detach().item() * num_batch
 
             if save_visual:
-                save_path = os.path.join(args.save_dir, args.save_name, 'anomaly_map')
-                image_save_path = os.path.join(args.save_dir, args.save_name, 'image')
-
-                if not os.path.exists(save_path):
-                    os.mkdir(save_path)
-                if not os.path.exists(image_save_path):
-                    os.mkdir(image_save_path)
-
                 anomaly_maps = F.interpolate(result['p_all'], size=xo.shape[2:], mode='trilinear')
-                global_min = torch.min(anomaly_maps).cpu().numpy()
-                global_max = torch.max(anomaly_maps).cpu().numpy()
-                print("min, max", global_min, global_max)
+                all_maps.append(anomaly_maps.cpu())
+                all_images.append(xo.cpu())
+                all_filenames.extend(file_names)
 
-                for i in range(xo.shape[0]):
-                    image = np.squeeze(xo[i].cpu().numpy()) # shape: (D, H, W)
-                    anomaly_map = np.squeeze(anomaly_maps[i].cpu().numpy())
-                    amap_norm = (anomaly_map - global_min) / (global_max - global_min + 1e-8)
-
-                    file_name = file_names[i]
-                    self.save_anomaly_map(amap_norm, image, save_path, image_save_path, file_name)
-
-        thresh = return_best_thr(y_true, y_prob)
+        thresh = return_best_thr_youden(y_true, y_prob)
         acc = accuracy_score(y_true, y_prob >= thresh)
         f1 = f1_score(y_true, y_prob >= thresh)
         recall = recall_score(y_true, y_prob >= thresh)
@@ -252,6 +239,34 @@ class EDC:
         AUC1 = roc_auc_score(y_true, y1_prob)
         AUC2 = roc_auc_score(y_true, y2_prob)
         AUC3 = roc_auc_score(y_true, y3_prob)
+
+        if save_visual:
+            save_path = os.path.join(args.save_dir, args.save_name, 'anomaly_map')
+            image_save_path = os.path.join(args.save_dir, args.save_name, 'image')
+
+            if not os.path.exists(save_path):
+                os.makedirs(save_path, exist_ok=True)
+            if not os.path.exists(image_save_path):
+                os.makedirs(image_save_path, exist_ok=True)
+
+            # Compute global min/max across ALL batches
+            all_anomaly_maps = torch.cat(all_maps, dim=0)
+            global_min = torch.min(all_anomaly_maps).numpy()
+            global_max = torch.max(all_anomaly_maps).numpy()
+            print(f"Global min, max across all batches: {global_min}, {global_max}")
+
+            # Normalize and save all anomaly maps
+            idx = 0
+            for batch_maps, batch_images in zip(all_maps, all_images):
+                for i in range(batch_maps.shape[0]):
+                    image = np.squeeze(batch_images[i].numpy())
+                    anomaly_map = np.squeeze(batch_maps[i].numpy())
+                    amap_norm = (anomaly_map - global_min) / (global_max - global_min + 1e-8)
+
+                    file_name = all_filenames[idx]
+                    self.save_anomaly_map(amap_norm, image, save_path, image_save_path, file_name)
+                    idx += 1
+
 
         self.model.train()
         return {'eval/loss': total_loss / total_num, 'eval/thr':thresh, 'eval/f1': f1, 'eval/recall': recall,
@@ -286,22 +301,6 @@ class EDC:
         nib.save(nib.Nifti1Image(image, affine), os.path.join(image_save_path, file_name))
 
 
-def gray2heatmap(gray):
-    heatmap = []
-    for i in range(gray[0]):
-        heatmap = cv2.applyColorMap(np.uint8(i), cv2.COLORMAP_JET)
-    return heatmap
-
-
-def heatmap_on_image(heatmap, image):
-    out = np.float32(heatmap) / 255 + np.float32(image) / 255
-    out = out / np.max(out)
-    return np.uint8(255 * out)
-
-
-def min_max_norm(image):
-    a_min, a_max = image.min(), image.max()
-    return (image - a_min) / (a_max - a_min)
 
 
 def return_best_thr(y_true, y_score):
@@ -311,6 +310,19 @@ def return_best_thr(y_true, y_score):
     thrs = thrs[~np.isnan(f1s)]
     f1s = f1s[~np.isnan(f1s)]
     best_thr = thrs[np.argmax(f1s)]
+    return best_thr
+
+
+def return_best_thr_youden(y_true, y_score):
+    """
+    Find best threshold using Youden's J statistic.
+    J = sensitivity + specificity - 1
+    Maximizes the difference between true positive rate and false positive rate.
+    """
+    fpr, tpr, thresholds = roc_curve(y_true, y_score)
+    j_scores = tpr - fpr  # Youden's J statistic
+    best_idx = np.argmax(j_scores)
+    best_thr = thresholds[best_idx]
     return best_thr
 
 

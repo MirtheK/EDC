@@ -10,6 +10,9 @@ import os
 
 from datasets.DistributedProxySampler import DistributedProxySampler
 
+import torch
+import numpy as np
+
 
 def split_ssl_data(args, data, target, num_labels, num_classes, index=None, include_lb_to_ulb=True):
     """

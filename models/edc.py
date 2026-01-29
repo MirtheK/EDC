@@ -35,30 +35,6 @@ def enable_running_stats(model):
     model.apply(_enable)
 
 
-def mahalanobis_distance_sq(d, e, mu, inv_cov, reshape=True):
-    """
-    Calculates the squared Mahalanobis distance loss between features d and e.
-    d: decoder feature output
-    e: encoder feature output
-    mu: mean vector of normal residuals (d-e)
-    inv_cov: inverse covariance matrix of normal residuals (d-e)
-    """
-    B = d.shape[0]
-
-    if reshape:
-        d_flat = d.reshape(B, -1)
-        e_flat = e.reshape(B, -1)
-    else:
-        d_flat = d
-        e_flat = e
-
-    residual = d_flat - e_flat
-    x_mu = residual - mu.unsqueeze(0) 
-    term_1 = torch.matmul(x_mu, inv_cov)
-    mahalanobis_sq = torch.sum(term_1 * x_mu, dim=1) 
-    return mahalanobis_sq.mean(), mahalanobis_sq # Return both mean loss and per-sample distance
-
-
 class R50_R50(nn.Module):
     def __init__(self,
                  img_size=256,
@@ -66,7 +42,8 @@ class R50_R50(nn.Module):
                  stop_grad=True,
                  reshape=True,
                  bn_pretrain=False,
-                 anomap_layer=[1, 2, 3]
+                 anomap_layer=[1, 2, 3],
+    
                  ):
         super().__init__()
         self.edc_encoder = resnet50(pretrained=True)
@@ -76,7 +53,7 @@ class R50_R50(nn.Module):
         self.reshape = reshape
         self.bn_pretrain = bn_pretrain
         self.anomap_layer = anomap_layer
-    
+
     def forward(self, x, ):
         if not self.train_encoder and self.edc_encoder.training:
             self.edc_encoder.eval()
@@ -95,36 +72,38 @@ class R50_R50(nn.Module):
             e2 = e2.detach()
             e3 = e3.detach()
 
-        if self.reshape:
-            l1 = 1. - torch.cosine_similarity(d1.reshape(B, -1), e1.reshape(B, -1), dim=1).mean()
-            l2 = 1. - torch.cosine_similarity(d2.reshape(B, -1), e2.reshape(B, -1), dim=1).mean()
-            l3 = 1. - torch.cosine_similarity(d3.reshape(B, -1), e3.reshape(B, -1), dim=1).mean()
-        else:
-            l1 = 1. - torch.cosine_similarity(d1, e1, dim=1).mean()
-            l2 = 1. - torch.cosine_similarity(d2, e2, dim=1).mean()
-            l3 = 1. - torch.cosine_similarity(d3, e3, dim=1).mean()
 
-        with torch.no_grad():
-            p1 = 1. - torch.cosine_similarity(d1, e1, dim=1).unsqueeze(1)
-            p2 = 1. - torch.cosine_similarity(d2, e2, dim=1).unsqueeze(1)
-            p3 = 1. - torch.cosine_similarity(d3, e3, dim=1).unsqueeze(1)
-
-        # MSE loss instead
-        # criterion = nn.MSELoss(reduction='none')
-
+        # Cosine distance loss
         # if self.reshape:
-        #     l1 = criterion(d1.reshape(B, -1), e1.reshape(B, -1)).mean()
-        #     l2 = criterion(d2.reshape(B, -1), e2.reshape(B, -1)).mean()
-        #     l3 = criterion(d3.reshape(B, -1), e3.reshape(B, -1)).mean()
+        #     l1 = 1. - torch.cosine_similarity(d1.reshape(B, -1), e1.reshape(B, -1), dim=1).mean()
+        #     l2 = 1. - torch.cosine_similarity(d2.reshape(B, -1), e2.reshape(B, -1), dim=1).mean()
+        #     l3 = 1. - torch.cosine_similarity(d3.reshape(B, -1), e3.reshape(B, -1), dim=1).mean()
         # else:
-        #     l1 = criterion(d1, e1).mean()
-        #     l2 = criterion(d2, e2).mean()
-        #     l3 = criterion(d3, e3).mean()
+        #     l1 = 1. - torch.cosine_similarity(d1, e1, dim=1).mean()
+        #     l2 = 1. - torch.cosine_similarity(d2, e2, dim=1).mean()
+        #     l3 = 1. - torch.cosine_similarity(d3, e3, dim=1).mean()
 
         # with torch.no_grad():
-        #     p1 = criterion(d1, e1) 
-        #     p2 = criterion(d2, e2)
-        #     p3 = criterion(d3, e3)
+        #     p1 = 1. - torch.cosine_similarity(d1, e1, dim=1).unsqueeze(1)
+        #     p2 = 1. - torch.cosine_similarity(d2, e2, dim=1).unsqueeze(1)
+        #     p3 = 1. - torch.cosine_similarity(d3, e3, dim=1).unsqueeze(1)
+
+        # MSE loss instead
+        criterion = nn.MSELoss(reduction='none')
+
+        if self.reshape:
+            l1 = criterion(d1.reshape(B, -1), e1.reshape(B, -1)).mean()
+            l2 = criterion(d2.reshape(B, -1), e2.reshape(B, -1)).mean()
+            l3 = criterion(d3.reshape(B, -1), e3.reshape(B, -1)).mean()
+        else:
+            l1 = criterion(d1, e1).mean()
+            l2 = criterion(d2, e2).mean()
+            l3 = criterion(d3, e3).mean()
+
+        with torch.no_grad():
+            p1 = criterion(d1, e1) 
+            p2 = criterion(d2, e2)
+            p3 = criterion(d3, e3)
         loss = l1 + l2 + l3
 
         p2 = F.interpolate(p2, scale_factor=2, mode='trilinear', align_corners=False)
