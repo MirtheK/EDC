@@ -229,7 +229,7 @@ class EDC:
                 all_images.append(xo.cpu())
                 all_filenames.extend(file_names)
 
-        thresh = return_best_thr_youden(y_true, y_prob)
+        thresh = return_best_thr(y_true, y_prob)
         acc = accuracy_score(y_true, y_prob >= thresh)
         f1 = f1_score(y_true, y_prob >= thresh)
         recall = recall_score(y_true, y_prob >= thresh)
