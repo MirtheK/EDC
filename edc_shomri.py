@@ -14,6 +14,7 @@ from methods.edc1 import EDC
 from datasets.dataset import AD_Dataset
 from datasets.data_utils import get_data_loader
 from models.edc import R50_R50
+from models.monai_AE import Autoencoder3D
 import warnings
 import torch
 import numpy as np
@@ -74,12 +75,14 @@ def main_worker(gpu, args):
                                           num_workers=args.num_workers,
                                           drop_last=False)
 
-    model = R50_R50(img_size=args.img_size,
-                    train_encoder=True,
-                    stop_grad=True,
-                    reshape=True,
-                    bn_pretrain=False
-                    )
+    # model = R50_R50(img_size=args.img_size,
+    #                 train_encoder=True,
+    #                 stop_grad=True,
+    #                 reshape=True,
+    #                 bn_pretrain=False
+    #                 )
+    model = Autoencoder3D(in_channels=1)
+
     model.to(args.device)
     for m in model.modules():
         if isinstance(m, nn.BatchNorm3d):
@@ -173,7 +176,7 @@ if __name__ == "__main__":
     ''' 
     Data Configurations
     '''
-    parser.add_argument('--data_dir', type=str, default="/projects/prjs1633/anomaly_detection/SHOMRI/new_crop/")
+    parser.add_argument('--data_dir', type=str, default="/projects/prjs1633/anomaly_detection/SHOMRI/")
     parser.add_argument('-ds', '--dataset', type=str, default='mri')
     parser.add_argument('--train_sampler', type=str, default=None)
     parser.add_argument('--img_size', type=int, default=128)
