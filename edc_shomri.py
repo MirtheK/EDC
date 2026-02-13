@@ -13,8 +13,8 @@ from methods.edc1 import EDC
 
 from datasets.dataset import AD_Dataset
 from datasets.data_utils import get_data_loader
+from torch.utils.data import sampler, DataLoader
 from models.edc import R50_R50
-from models.monai_AE import Autoencoder3D
 import warnings
 import torch
 import numpy as np
@@ -63,25 +63,21 @@ def main_worker(gpu, args):
 
     generator_lb = torch.Generator()
     generator_lb.manual_seed(args.seed)
-    loader_dict['train'] = get_data_loader(dset_dict['train'],
+    loader_dict['train'] = DataLoader(dset_dict['train'],
                                            args.batch_size,
-                                           data_sampler=args.train_sampler,
-                                           num_iters=args.num_train_iter,
-                                           num_workers=args.num_workers,
-                                           distributed=False)
+                                           num_workers=args.num_workers)
 
-    loader_dict['eval'] = get_data_loader(dset_dict['eval'],
+    loader_dict['eval'] = DataLoader(dset_dict['eval'],
                                           args.eval_batch_size,
-                                          num_workers=args.num_workers,
-                                          drop_last=False)
+                                          num_workers=args.num_workers)
 
-    # model = R50_R50(img_size=args.img_size,
-    #                 train_encoder=True,
-    #                 stop_grad=True,
-    #                 reshape=True,
-    #                 bn_pretrain=False
-    #                 )
-    model = Autoencoder3D(in_channels=1)
+    model = R50_R50(img_size=args.img_size,
+                    train_encoder=True,
+                    stop_grad=True,
+                    reshape=True,
+                    bn_pretrain=False
+                    )
+    # model = Ganomaly(in_channels=1)
 
     model.to(args.device)
     for m in model.modules():

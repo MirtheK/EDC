@@ -48,7 +48,7 @@ class BasicDataset(Dataset):
     Supports nii.gz images.
     """
 
-    def __init__(self, img_paths, targets=None, transform=None, train=True, imagenet_norm=True, output_size=(128, 64, 128)):
+    def __init__(self, img_paths, targets=None, transform=None, train=True, imagenet_norm=True, output_size=(128, 128, 128)):
         super().__init__()
         self.img_paths = img_paths
         self.targets = targets

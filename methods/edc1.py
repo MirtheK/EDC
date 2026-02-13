@@ -38,6 +38,9 @@ class EDC:
         self.amap_reduction = amap_reduction
         self.bn_controller = Bn_Controller()
 
+        self.min_score = float('inf')
+        self.max_score = float('-inf')
+
     def set_data_loader(self, loader_dict):
         self.loader_dict = loader_dict
         self.print_fn(f'[!] data loader keys: {self.loader_dict.keys()}')
@@ -223,17 +226,22 @@ class EDC:
 
             total_loss += result['loss'].detach().item() * num_batch
 
+            self.min_score = min(self.min_score, min(y_prob))
+            self.max_score = max(self.max_score, max(y_prob))
+
             if save_visual:
                 anomaly_maps = F.interpolate(result['p_all'], size=xo.shape[2:], mode='trilinear')
                 all_maps.append(anomaly_maps.cpu())
                 all_images.append(xo.cpu())
                 all_filenames.extend(file_names)
 
-        thresh = return_best_thr(y_true, y_prob)
-        acc = accuracy_score(y_true, y_prob >= thresh)
-        f1 = f1_score(y_true, y_prob >= thresh)
-        recall = recall_score(y_true, y_prob >= thresh)
-        specificity = specificity_score(y_true, y_prob >= thresh)
+        thresh = 0.5 #return_best_thr(y_true, y_prob)
+        y_prob_norm = (y_prob - self.min_score) / (self.max_score - self.min_score + 1e-8)
+
+        acc = accuracy_score(y_true, y_prob_norm >= thresh)
+        f1 = f1_score(y_true, y_prob_norm >= thresh)
+        recall = recall_score(y_true, y_prob_norm >= thresh)
+        specificity = specificity_score(y_true, y_prob_norm >= thresh)
 
         AUC = roc_auc_score(y_true, y_prob)
         AUC1 = roc_auc_score(y_true, y1_prob)
